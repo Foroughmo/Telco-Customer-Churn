@@ -30,7 +30,7 @@ Focused customer retention programs
 
 ## Contributors
 
-- Samantha Vaga ([@sam](https://github.com/sam))
+- Samantha Vaga ([@samanthav416](https://github.com/samanthav416))
 - Zainab Sunny
 - Kate Pferdner
 
