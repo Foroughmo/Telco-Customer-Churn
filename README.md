@@ -28,6 +28,13 @@ Focused customer retention programs
   ### Predictive Power
   However, if we value predictive power more and have the capacity to handle a more complex model, Random Forest or Tree Classification might be better, as they offer slightly higher         accuracy and can capture more complex relationships in the data.
 
+## Contributors
+
+- Samantha Vaga ([@sam](https://github.com/sam))
+- Zainab Sunny
+- Kate Pferdner
+
+
 
 
 
