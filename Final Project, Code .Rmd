@@ -1,0 +1,404 @@
+---
+title: "Final Project Code"
+author: "Zainab Sunny, Samantha Vega, Forough Mofidi, Kate Pferdner"
+date: "2024-03-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Install Pagackes
+
+```{r packages}
+library(tidyverse)
+library(readr)
+library(rpart)
+library(rpart.plot)
+library(survival)
+library(survminer)
+library(lattice)
+library(ggplot2)
+library(caret)
+library(ROCR)
+library(e1071)
+```
+
+## Data Cleaning and Manipulation
+
+```{r cleaning}
+df <- read.csv("/Users/Kate/Downloads/telco.csv")
+
+# Drop the 'customerID' column
+df <- subset(df, select = -customerID)
+
+# Convert 'TotalCharges' to numeric
+df$TotalCharges <- as.numeric(as.character(df$TotalCharges))
+
+# Check for missing values - TotalCharges has 11
+print(colSums(is.na(df)))
+
+# Impute missing values in 'TotalCharges' with mean
+df$TotalCharges[is.na(df$TotalCharges)] <- mean(df$TotalCharges, na.rm = TRUE)
+
+# Drop rows where 'tenure' is 0
+rows_with_tenure_0 <- which(df$tenure == 0)
+df <- df[-rows_with_tenure_0, ]
+
+# Convert 'SeniorCitizen' to categorical
+df$SeniorCitizen <- factor(df$SeniorCitizen, levels = c(0, 1), labels = c("No", "Yes"))
+
+# Create a list of categorical columns
+cat_cols <- names(df)[sapply(df, is.factor)]
+cat_cols <- cat_cols[cat_cols != "customerID"]  # Remove 'customerID' column
+
+# Convert categorical variables to factors
+df$gender <- as.factor(df$gender)
+df[cat_cols] <- lapply(df[cat_cols], as.factor)
+
+# Display summary statistics for 'InternetService'
+print(summary(df$InternetService))
+
+# Display summary statistics for numerical columns
+numerical_cols <- c('tenure', 'MonthlyCharges', 'TotalCharges')
+print(summary(df[, numerical_cols]))
+
+# Convert 'Churn' to factor
+df$Churn <- factor(df$Churn, levels = c("No", "Yes"))
+```
+
+## EDA
+
+``` {r eda}
+glimpse(df)
+summary(df)
+
+## Categorical Values
+table(df$gender, useNA = 'always')
+table(df$Partner, useNA = 'always')
+table(df$MultipleLines, useNA = 'always')
+table(df$InternetService, useNA = 'always')
+table(df$OnlineBackup, useNA = 'always')
+table(df$OnlineSecurity, useNA = 'always')
+table(df$DeviceProtection, useNA = 'always')
+table(df$TechSupport, useNA = 'always')
+table(df$StreamingTV, useNA = 'always')
+table(df$StreamingMovies, useNA = 'always')
+table(df$Contract, useNA = 'always')
+table(df$PaperlessBilling, useNA = 'always')
+table(df$PaymentMethod, useNA = 'always')
+table(df$Churn, useNA = 'always')
+
+## Numerical Values
+fivenum(df$tenure)
+fivenum(df$MonthlyCharges)
+fivenum(df$TotalCharges)
+
+## Data Discovery Plots
+a <- ggplot(df, aes( x = Churn, y = InternetService)) + geom_count(colour ='#006c67') + ggtitle("Churn by Internet Service Type")
+a + theme(plot.title = element_text(hjust = .5, face = 'bold'))
+
+b <- ggplot(df, aes(x = MonthlyCharges, y = Churn)) + geom_boxplot(fill = '#76ABDF') + ggtitle("Churn by Monthly Charges")
+b + theme(plot.title = element_text(hjust = .5, face = 'bold'))
+
+c <- ggplot(df, aes(x = TotalCharges, y = Churn)) + geom_boxplot(fill = '#6495ED', outlier.colour = '#1C05B3', outlier.size = 3) + ggtitle("Churn by Total Charges")
+c + coord_flip() + theme(plot.title = element_text(hjust = .5, face = 'bold'))
+
+d <- ggplot(df, aes(x = tenure)) + geom_histogram(color = 'black', fill = '#00CCFF', binwidth = 5) + ggtitle("Histogram of Tenure")
+d + theme(plot.title = element_text(hjust = .5, face = 'bold'))
+df |> count(PhoneService, InternetService) |>
+  ggplot(aes(x = PhoneService, y = InternetService)) + geom_tile(aes(fill = n))
+df |> count(PaymentMethod, InternetService) |>
+  ggplot(aes(x = PaymentMethod, y = InternetService)) + geom_tile(aes(fill = n))
+
+## Finding nulls in Total Charges
+sum(is.na(df$TotalCharges))
+subset(df, is.na(TotalCharges))
+```
+
+# Break Data into Train and Test
+
+``` {r train}
+# Train - Test
+set.seed(123)
+
+# Split data, 75% distribution of churn for training
+train.index <- createDataPartition( y = df$Churn, p = 0.75, list = FALSE)
+train <- df[train.index,]
+test <- df[-train.index,]
+```
+
+## Linear Regression
+
+``` {r logisticregression}
+full.model <- glm(Churn ~., train, family = binomial)
+summary(full.model)
+
+
+step.model <- step(full.model, direction = "both", trace = FALSE)
+summary(step.model)
+
+#Confusion Matrix for step.model
+
+predict.test <- predict(step.model, newdata = test, type = 'response')
+predict.train <- predict(step.model, newdata = train, type = 'response')
+
+# Convert predicted probabilities to class labels
+predicted_classes_test <- ifelse(predict.test > 0.5, "Yes", "No")
+predicted_classes_train <- ifelse(predict.train > 0.5, "Yes", "No")
+
+# Get the actual class labels
+true_labels_test <- test$Churn
+true_labels_train <- train$Churn
+
+# Compute the confusion matrix
+
+confusion_matrix_test <- table(true_labels_test, predicted_classes_test)
+print(paste("Confusion Matrix Test", confusion_matrix_test))
+
+confusion_matrix_train <- table(true_labels_train, predicted_classes_train)
+print(paste("Confusion Matrix Train", confusion_matrix_train))
+
+# Accuracy of the model:
+accuracy_test <- sum(predicted_classes_test == true_labels_test) / length(true_labels_test)
+accuracy_train <- sum(predicted_classes_train == true_labels_train) / length(true_labels_train)
+
+TP <- confusion_matrix_test[2, 2]
+FN <- confusion_matrix_test[2, 1]
+TN <- confusion_matrix_test[1, 1]
+FP <- confusion_matrix_test[1, 2]
+
+sensitivity <- TP / (TP + FN)
+specificity <- TN / (TN + FP)
+```
+
+## Kaplan-Meier
+
+``` {r kaplan}
+kmf <- survfit(Surv(tenure, Churn) ~ StreamingTV, data = df)
+kmf
+```
+
+## Classification Tree
+``` {r classificationtree}
+tree_model <- rpart(Churn ~ ., data = df, method = "class")
+
+# Visualize the tree
+rpart.plot(tree_model)
+
+# Classification Tree - Confusion Matrix - Accuracy
+
+# Prediction, classification  -  Classificatin Tree
+tree.pred <- predict(tree_model,test, type = "class")
+confusionMatrix(tree.pred,test$Churn)
+
+# Prediction, probability
+tree.pred.prob <- predict(tree_model, test, type = "prob")
+tree.pred.prob.val <- prediction(tree.pred.prob[,2],test$Churn)
+tree.pred.prob.perf <- performance(tree.pred.prob.val, "auc")
+
+# print AUC value
+paste("AUC Value is:", as.numeric(performance(tree.pred.prob.val, "auc")@y.values))
+# plots the ROC curve with colors where the splits are.
+plot(performance(tree.pred.prob.val, "tpr", "fpr"), colorize = TRUE ,main = "ROC Curve - Classification Tree")
+```
+
+## Random Forest
+
+``` {r randomforest}
+#Random Forest
+
+rf.fit  <- train(Churn ~ . , method = "rf", data = train, importance = TRUE)
+rf.pred <- predict(rf.fit, test)
+confusionMatrix(rf.pred, test$Churn)
+#performance(rf.pred, measure = "auc")@y.values[[1]]
+
+# Prediction, probability
+rf.pred.prob <- predict(rf.fit, test, type = "prob")
+rf.pred.prob.val <- prediction(rf.pred.prob[,2],test$Churn)
+rf.pred.prob.perf <- performance(rf.pred.prob.val,"auc")
+
+# print AUC value - Random Forest Model
+paste("AUC Value is:", as.numeric(performance(rf.pred.prob.val, "auc")@y.values))
+# plots the ROC curve with colors where the splits are.
+plot(performance(rf.pred.prob.val, "tpr", "fpr"), colorize = TRUE , main = "ROC Curve - Random Forest")
+```
+
+## SVM
+
+``` {r svm}
+model_svm <- svm(Churn~., train, kernel="linear", cost=0.1)
+model_svm
+predicted_svm<-predict(model_svm,test,decision.values = TRUE)
+mean(predicted_svm==test$Churn)
+
+svm_ct <- table(predicted_svm, test$Churn)
+svm_ct
+svm_recall <- svm_ct[2,2]/(svm_ct[2,2]+svm_ct[1,2])
+svm_recall
+```
+
+## KNN
+
+``` {r knn}
+preProcValues <- preProcess(train, method = c("center", "scale"))
+trainTransformed <- predict(preProcValues, train)
+testTransformed <- predict(preProcValues, test)
+
+## K = 3
+knn.churn3<- knn3(
+  Churn ~ gender + SeniorCitizen + Partner + Dependents + tenure + PhoneService + MonthlyCharges + TotalCharges,
+  data = trainTransformed,
+  k = 3
+)
+
+predictions3 <- predict(knn.churn3, testTransformed,type = "class")
+
+# Calculate confusion matrix
+cm3 <- confusionMatrix(predictions3, testTransformed$Churn)
+cm3
+
+results3 <- data.frame(Accuracy = cm3$overall["Accuracy"],
+           Sensitivity = cm3$byClass["Sensitivity"],
+           Specificity = cm3$byClass["Specificity"])
+results3$Accuracy
+
+knn.churn5<- knn3(
+  Churn ~ gender + SeniorCitizen + Partner + Dependents + tenure + PhoneService + MonthlyCharges + TotalCharges,
+  data = trainTransformed,
+  k = 5
+)
+
+predictions5 <- predict(knn.churn5, testTransformed,type = "class")
+
+# Calculate confusion matrix
+cm5 <- confusionMatrix(predictions5, testTransformed$Churn)
+cm5
+
+results5 <- data.frame(Accuracy = cm5$overall["Accuracy"],
+                       Sensitivity = cm5$byClass["Sensitivity"],
+                       Specificity = cm5$byClass["Specificity"])
+results5$Accuracy
+
+##KNN k = 9
+knn.churn9<- knn3(
+  Churn ~ gender + SeniorCitizen + Partner + Dependents + tenure + PhoneService + MonthlyCharges + TotalCharges,
+  data = trainTransformed,
+  k = 9
+)
+
+predictions9 <- predict(knn.churn9, testTransformed,type = "class")
+
+# Calculate confusion matrix
+cm9 <- confusionMatrix(predictions9, testTransformed$Churn)
+cm9
+
+results9 <- data.frame(Accuracy = cm9$overall["Accuracy"],
+                       Sensitivity = cm9$byClass["Sensitivity"],
+                       Specificity = cm9$byClass["Specificity"])
+results9$Accuracy
+
+## KNN k = 11
+knn.churn11<- knn3(
+  Churn ~ gender + SeniorCitizen + Partner + Dependents + tenure + PhoneService + MonthlyCharges + TotalCharges,
+  data = trainTransformed,
+  k = 11
+)
+
+predictions11 <- predict(knn.churn11, testTransformed,type = "class")
+
+# Calculate confusion matrix
+cm11 <- confusionMatrix(predictions11, testTransformed$Churn)
+cm11
+
+results11 <- data.frame(Accuracy = cm11$overall["Accuracy"],
+                       Sensitivity = cm11$byClass["Sensitivity"],
+                       Specificity = cm11$byClass["Specificity"])
+results11$Accuracy
+
+
+## KNN k = 13
+knn.churn13<- knn3(
+  Churn ~ gender + SeniorCitizen + Partner + Dependents + tenure + PhoneService + MonthlyCharges + TotalCharges,
+  data = trainTransformed,
+  k = 13
+)
+
+predictions13 <- predict(knn.churn13,
+testTransformed,type = "class")
+# Calculate confusion matrix
+cm13 <- confusionMatrix(predictions13,testTransformed$Churn)
+cm13
+
+results13 <- data.frame(Accuracy = cm13$overall["Accuracy"],
+                        Sensitivity = cm13$byClass["Sensitivity"],
+                        Specificity = cm13$byClass["Specificity"])
+results13$Accuracy
+
+## KNN k = 15
+knn.churn15<- knn3(
+  Churn ~ gender + SeniorCitizen + Partner + Dependents + tenure + PhoneService + MonthlyCharges + TotalCharges,
+  data = trainTransformed,
+  k = 15
+)
+
+predictions15 <- predict(knn.churn15, testTransformed,type = "class")
+
+# Calculate confusion matrix
+cm15 <- confusionMatrix(predictions15, testTransformed$Churn)
+cm15
+
+results15 <- data.frame(Accuracy = cm15$overall["Accuracy"],
+                        Sensitivity = cm15$byClass["Sensitivity"],
+                        Specificity = cm15$byClass["Specificity"])
+results15$Accuracy
+
+## KNN k = 19
+knn.churn19<- knn3(
+  Churn ~ gender + SeniorCitizen + Partner + Dependents + tenure + PhoneService + MonthlyCharges + TotalCharges,
+  data = trainTransformed,
+  k = 19
+)
+
+predictions19 <- predict(knn.churn19, testTransformed,type = "class")
+
+# Calculate confusion matrix
+cm19 <- confusionMatrix(predictions19, testTransformed$Churn)
+cm19
+
+results19 <- data.frame(Accuracy = cm19$overall["Accuracy"],
+                        Sensitivity = cm19$byClass["Sensitivity"],
+                        Specificity = cm19$byClass["Specificity"])
+results19$Accuracy
+
+## Confirming K = 11 is best value
+knnModel <- train(
+  Churn ~ gender + SeniorCitizen + Partner + Dependents + tenure + PhoneService + MonthlyCharges + TotalCharges,
+  data = trainTransformed,
+  method = "knn",
+  trControl = trainControl(method = "cv"),
+  tuneGrid = data.frame(k = c(3,5,9,11,13,15,19))
+)
+
+best_model<- knn3(
+  Churn ~ gender + SeniorCitizen + Partner + Dependents + tenure + PhoneService + MonthlyCharges + TotalCharges,
+  data = trainTransformed,
+  k = knnModel$bestTune$k
+)
+
+accuracy.df <- data.frame(
+  k_value = c(3,5,9,11,13,15,19),
+  accuracy = c(results3$Accuracy,results5$Accuracy,results9$Accuracy, results11$Accuracy, results13$Accuracy, results15$Accuracy, results19$Accuracy)
+)
+accuracy.df
+
+p <- ggplot(accuracy.df, aes(x = k_value, y = accuracy)) +
+  geom_line(color = "lightgreen", linewidth = 2) +
+  geom_point(color = "darkgreen", size = 5) +
+  labs(title = "K-Nearest Neighbors Accuracy for Different K Values",
+       x = "Number of Neighbors (K Value)",
+       y = "Accuracy") +
+  theme_minimal()
+
+p + theme(plot.title = element_text(hjust = .5, face = 'bold'))
